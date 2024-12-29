@@ -5,7 +5,6 @@ import com.amazing.EverydayWiki.database.UserService;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
-import com.amazing.EverydayWiki.service.WikipediaService;
 
 import java.util.List;
 
@@ -26,8 +25,8 @@ public class ArticleScheduler {
 
     @Scheduled(cron = "0 0 06 * * *", zone = "UTC") // 9 AM по UTC
     public void sendDailyArticleToAllUsers() {
-        System.out.println("scheduler");
-        String featuredArticle = wikipediaService.getTodaysFeaturedArticle(telegramBot.getLanguageCode());
+        //System.out.println("scheduler");
+        String featuredArticle = wikipediaService.getTodaysFeaturedArticle(telegramBot.getSystemLanguage());
 
         List<User> users = userService.getAllUsers();
         for (User user : users) {

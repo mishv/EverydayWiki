@@ -1,10 +1,11 @@
 package com.amazing.EverydayWiki.service;
 
+import com.amazing.EverydayWiki.config.Language;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.springframework.stereotype.Service;
 
-import javax.swing.text.Document;
+import org.jsoup.nodes.Document;
 import java.io.BufferedReader;
 import java.io.InputStreamReader;
 import java.net.HttpURLConnection;
@@ -19,9 +20,13 @@ import java.util.Locale;
 import java.util.Random;
 import java.util.function.Function;
 
+import org.jsoup.Jsoup;
+import org.jsoup.nodes.Element;
+
 @Service
 public class WikipediaService {
     String message; // ?
+
     public String getAbsolutelyRandomArticle(String language) {
         String API_URLen = "https://en.wikipedia.org/w/api.php?action=query&format=json&list=random&rnnamespace=0&rnlimit=1";
         String API_URLru = "https://ru.wikipedia.org/w/api.php?action=query&format=json&list=random&rnnamespace=0&rnlimit=1";
@@ -62,45 +67,41 @@ public class WikipediaService {
         int month = today.getMonthValue();
         int day = today.getDayOfMonth();
         String TFA_URLen = String.format("https://en.wikipedia.org/api/rest_v1/feed/featured/%d/%02d/%02d", year, month, day);
-        String URLru = "https://ru.wikipedia.org/wiki/Заглавная_страница";
+        String URLru = "https://ru.wikipedia.org/wiki/Шаблон:Текущая_избранная_статья";
         String message;
 
-        try {
-            HttpURLConnection connection;
+        if (language.equals(Language.RUSSIAN.getDisplayName())) {
+            DateTimeFormatter formatter = DateTimeFormatter.ofPattern("d MMMM", Locale.forLanguageTag("ru"));
+            String formattedDate = today.format(formatter);
+            message = "<b>" + formattedDate + ".</b>" + "\n\n⭐ <b>Статья Дня:</b>\n\n";
+            return message + parseWikiPage(URLru);
+        } else {
+            try {
+                HttpURLConnection connection;
+                connection = (HttpURLConnection) new URL(TFA_URLen).openConnection();
+                connection.setRequestMethod("GET");
 
-            if (language.equals("ru")) {
-                //ЗДЕСЬ EN СТАТЬЯ
-                connection = (HttpURLConnection) new URL(TFA_URLen).openConnection();
-                DateTimeFormatter formatter = DateTimeFormatter.ofPattern("d MMMM", Locale.forLanguageTag("ru"));
-                String formattedDate = today.format(formatter);
-                message = "<b>"+formattedDate+".</b>" + "\n\n⭐ <b>Статья дня:</b>\n\n";
-            } else {
-                connection = (HttpURLConnection) new URL(TFA_URLen).openConnection();
                 DateTimeFormatter formatter = DateTimeFormatter.ofPattern("MMMM d", Locale.ENGLISH);
                 String formattedDate = today.format(formatter);
-                message = "<b>"+formattedDate+".</b>" + "\n\n⭐ <b>Article of the Day:</b>\n\n";
-            }
+                message = "<b>" + formattedDate + ".</b>" + "\n\n⭐ <b>Article of the Day:</b>\n\n";
 
-            connection.setRequestMethod("GET");
+                BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
+                String response = reader.lines().collect(java.util.stream.Collectors.joining());
+                reader.close();
 
-            BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-            String response = reader.lines().collect(java.util.stream.Collectors.joining());
-            reader.close();
+                JsonNode rootNode = new ObjectMapper().readTree(response);
+                JsonNode featuredArticle = rootNode.at("/tfa");
 
-            JsonNode rootNode = new ObjectMapper().readTree(response);
-            JsonNode featuredArticle = rootNode.at("/tfa");
-
-            String title = featuredArticle.get("title").asText();
-            if (language.equals("ru")) {
-                return message + "https://ru.wikipedia.org/wiki/" + title.replace(" ", "_");
-            } else {
+                String title = featuredArticle.get("title").asText();
                 return message + "https://en.wikipedia.org/wiki/" + title.replace(" ", "_");
-            }
 
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "Не удалось получить статью. Попробуйте позже.";
+            } catch (Exception e) {
+                e.printStackTrace();
+                return "Не удалось получить статью. Попробуйте позже.";
+            }
         }
+
+
     }
 
     public String getRandomFeaturedArticle(String language) {
@@ -251,6 +252,41 @@ public class WikipediaService {
                 .replace("«", "%AB")
                 .replace("»", "%BB")
                 .replace("'", "%27");
+    }
+
+    public String parseWikiPage(String url) {
+        String title = "";
+        try {
+            // Загружаем HTML
+            Document doc = Jsoup.connect(url).get();
+
+            // Ищем div с нужным классом
+            Element hatnoteDiv = doc.selectFirst("div.hatnote.navigation-not-searchable");
+
+            if (hatnoteDiv != null) {
+                // Ищем ссылку внутри div
+                Element articleLink = hatnoteDiv.selectFirst("b > a");
+
+                if (articleLink != null) {
+                    // Получаем текст ссылки - это заголовок статьи
+                    title = articleLink.text();
+                } else {
+                    System.out.println("Ссылка на статью не найдена.");
+                }
+            } else {
+                System.out.println("Div с классом hatnote не найден.");
+            }
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
+
+        String[] substrings = {"\"", "«", "»", "'"};
+        boolean contains = Arrays.stream(substrings).anyMatch(title::contains);
+        if (contains) {
+            title = sanitizeUrl(title);
+        }
+
+        return "https://ru.wikipedia.org/wiki/" + title.replace(" ", "_");
     }
 
 }
