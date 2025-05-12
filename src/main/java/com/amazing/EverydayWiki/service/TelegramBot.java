@@ -2,7 +2,6 @@ package com.amazing.EverydayWiki.service;
 
 import com.amazing.EverydayWiki.config.BotConfig;
 import com.amazing.EverydayWiki.config.Language;
-import com.amazing.EverydayWiki.database.User;
 import com.amazing.EverydayWiki.database.UserService;
 import lombok.Getter;
 import org.springframework.stereotype.Component;
@@ -49,47 +48,43 @@ public class TelegramBot extends TelegramLongPollingBot {
             String messageText = message.getText();
             chatID = message.getChatId();
             String username = message.getFrom().getUserName();
-
-            if (userService.getSystemLanguage(chatID) == null || systemLanguage == null) {
-                systemLanguage = update.getMessage().getFrom().getLanguageCode();
-                userService.setSystemLanguage(chatID, systemLanguage);
-            }
+            systemLanguage = update.getMessage().getFrom().getLanguageCode();
 
             switch (messageText) {
                 case "/start":
-                    startCommandReceived(chatID);
-                    createMenu();
-
-                    if (systemLanguage.equals("ru")) {
-                        articleLanguage = Language.RUSSIAN.getDisplayName();
-                        userService.setLanguage(chatID, articleLanguage);
-                    } else {
-                        articleLanguage = Language.ENGLISH.getDisplayName();
-                        userService.setLanguage(chatID, articleLanguage);
-                    }
-                    // подумать над автообновлением часового пояса в БД, так как пользователь может сменить локацию
-                    userService.saveUser(chatID, username, systemLanguage);
+                    startCommandReceived(chatID, username, systemLanguage);
                     break;
                 case "/language":
                     updateArticlesLanguage(chatID);
                     break;
-                case "/bot":
-                    //
+                case "/restart":
+                    startCommandReceived(chatID, username, systemLanguage);
                     break;
                 default:
-                    //sendMessage(chatID, "I don't know this command yet.");
             }
+
+
         } else if (update.hasCallbackQuery()) {
             String callbackData = update.getCallbackQuery().getData(); // Получаем значение кнопки
-            long chatID = update.getCallbackQuery().getMessage().getChatId();
+            chatID = update.getCallbackQuery().getMessage().getChatId();
+
             // Обработка нажатия кнопки
             if (callbackData.equals("get_article")) {
-                //String article = wikipediaService.getRandomArticle(languageCode);
-                String article = wikipediaService.getTodaysFeaturedArticle(userService.getLanguage(chatID));
+                String article = wikipediaService.getRandomArticle(userService.getLanguage(chatID), userService.getSystemLanguage(chatID));
                 sendArticleWithButton(chatID, article);
             } else if (callbackData.startsWith("lang_")) {
                 articleLanguage = callbackData.split("_")[1];
-                sendMessageWithButton(chatID, "Выбран язык статей: " + articleLanguage);
+                SendMessage message = new SendMessage();
+                String messageText;
+
+                if (userService.getSystemLanguage(chatID).equals("ru") || userService.getSystemLanguage(chatID).equals("be")) {
+                    messageText = "Выбран язык статей: ";
+                } else {
+                    messageText = "Article language: ";
+                }
+
+                message.setText(messageText + articleLanguage + ".");
+                sendMessageWithButton(chatID, message, setRandomArticleButton());
                 userService.setLanguage(chatID, articleLanguage);
             }
         }
@@ -100,114 +95,95 @@ public class TelegramBot extends TelegramLongPollingBot {
         return config.getBotName();
     }
 
-    private void startCommandReceived(long chatID) {
-        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-        List<InlineKeyboardButton> row = new ArrayList<>();
+    private void startCommandReceived(long chatID, String username, String systemLanguage) {
+        createUser(chatID, username, systemLanguage);
+        createMenu();
+        SendMessage message = new SendMessage();
 
+        switch (userService.getSystemLanguage(chatID)) {
+            case "be":
+                articleLanguage = Language.BELORUSSIAN;
+                userService.setLanguage(chatID, articleLanguage);
+                message.setText("Добро пожаловать в \uD83C\uDF3B<b>Everyday Wiki!</b>\n\nКаждый день бот будет отправлять вам одну избранную статью из Википедии." +
+                        "\n\nХотите почитать что-то прямо сейчас?\nНажмите на кнопку ниже.");
+                break;
+            case "ru":
+                articleLanguage = Language.RUSSIAN;
+                userService.setLanguage(chatID, articleLanguage);
+                message.setText("Добро пожаловать в \uD83C\uDF3B<b>Everyday Wiki!</b>\n\nКаждый день бот будет отправлять вам одну избранную статью из Википедии." +
+                        "\n\nХотите почитать что-то прямо сейчас?\nНажмите на кнопку ниже.");
+                break;
+            default:
+                articleLanguage = Language.ENGLISH;
+                userService.setLanguage(chatID, articleLanguage);
+                message.setText("Welcome to \uD83C\uDF3B<b>Everyday Wiki!</b>\n\nThis bot will send you a featured Wiki article every day." +
+                        "\n\nIf you want to get some random article right now, just tap the button below.");
+        }
+
+        sendMessageWithButton(chatID, message, setRandomArticleButton());
+    }
+
+    private InlineKeyboardMarkup setRandomArticleButton() {
         InlineKeyboardButton button = new InlineKeyboardButton();
         button.setCallbackData("get_article");
 
-        SendMessage message = new SendMessage();
-        message.setChatId(chatID);
-        message.setReplyMarkup(keyboardMarkup);
-
-        if (userService.getSystemLanguage(chatID).equals("ru")) {
-            message.setText("Добро пожаловать в Everyday Wiki\uD83C\uDF3B\n\nКаждый день бот будет отправлять вам одну избранную статью из Википедии." +
-                    "\n\nХотите почитать что-то прямо сейчас?\nНажмите на кнопку \"Случайная статья\" ниже.");
+        if (userService.getSystemLanguage(chatID).equals("ru") || userService.getSystemLanguage(chatID).equals("be")) {
             button.setText("Случайная статья");
         } else {
-            message.setText("Welcome to Everyday Wiki\uD83C\uDF3B\n\nThis bot will send you a featured Wiki article every day." +
-                    "\n\nIf you want to get some random article right now, just tap the \"Get a random article\" button below.");
             button.setText("Get a random article");
         }
 
-        row.add(button);
-        keyboard.add(row);
-        keyboardMarkup.setKeyboard(keyboard);
-
-        try {
-            execute(message);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        return setInlineKeyboardMarkup(button);
     }
 
-    private void sendMessageWithButton(long chatID, String textToSend) {
-        SendMessage message = new SendMessage();
-        message.setChatId(String.valueOf(chatID));
-        message.setText(textToSend);
+    private InlineKeyboardMarkup setNextArticleButton() {
+        InlineKeyboardButton button = new InlineKeyboardButton();
+        button.setCallbackData("get_article");
 
+        if (userService.getSystemLanguage(chatID).equals("ru") || userService.getSystemLanguage(chatID).equals("be")) {
+            button.setText("Следующая статья");
+        } else {
+            button.setText("Next article");
+        }
+
+        return setInlineKeyboardMarkup(button);
+    }
+
+    private InlineKeyboardMarkup setInlineKeyboardMarkup(InlineKeyboardButton button) {
         InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
         List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
         List<InlineKeyboardButton> row = new ArrayList<>();
-        InlineKeyboardButton button = new InlineKeyboardButton();
-        if (userService.getSystemLanguage(chatID).equals("ru")) {
-            button.setText("Случайная статья");
-        } else {
-            button.setText("Get a random article");
-        }
-
-        button.setCallbackData("get_article"); // Уникальный идентификатор кнопки
-        row.add(button);
-
         keyboard.add(row);
         keyboardMarkup.setKeyboard(keyboard);
-        message.setReplyMarkup(keyboardMarkup);
+        row.add(button);
 
-        try {
-            execute(message);
-        } catch (TelegramApiException e) {
-            //e.printStackTrace();
-        }
+        return keyboardMarkup;
+    }
+
+    private void sendMessageWithButton(long chatID, SendMessage message, InlineKeyboardMarkup button) {
+        message.setChatId(String.valueOf(chatID));
+        message.setParseMode(ParseMode.HTML);
+        message.setReplyMarkup(button);
+        send(message);
     }
 
     public void sendArticleWithButton(long chatID, String text) {
-        // Создаем сообщение с текстом статьи
         SendMessage message = new SendMessage();
-        message.setChatId(chatID);
         message.setText(text);
-        message.setParseMode(ParseMode.HTML);
-
-
-        // Добавляем клавиатуру с кнопкой "Get a random article"
-        InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
-        List<List<InlineKeyboardButton>> keyboard = new ArrayList<>();
-
-        List<InlineKeyboardButton> row = new ArrayList<>();
-        InlineKeyboardButton button = new InlineKeyboardButton();
-
-        if (userService.getSystemLanguage(chatID).equals("ru")) {
-            button.setText("Следующая статья");
-        } else {
-            button.setText("Get next article");
-        }
-
-        button.setCallbackData("get_article");
-        row.add(button);
-
-        keyboard.add(row);
-        keyboardMarkup.setKeyboard(keyboard);
-        message.setReplyMarkup(keyboardMarkup);
-
-        // Отправляем сообщение
-        try {
-            execute(message);
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
+        sendMessageWithButton(chatID, message, setNextArticleButton());
     }
 
     public void createMenu() {
         //создаем меню
         List<BotCommand> listofCommands = new ArrayList<>();
-        if (systemLanguage.equals("ru")) {
-            listofCommands.add(new BotCommand("/about", "Информация о боте"));
+        if (systemLanguage.equals("ru") || systemLanguage.equals("be")) {
             listofCommands.add(new BotCommand("/language", "Язык статей"));
+            listofCommands.add(new BotCommand("/about", "Информация о боте"));
+            listofCommands.add(new BotCommand("/restart", "Перезапустить бот"));
         } else {
-            listofCommands.add(new BotCommand("/about", "Bot info"));
             listofCommands.add(new BotCommand("/language", "Set articles language"));
+            listofCommands.add(new BotCommand("/about", "Bot info"));
+            listofCommands.add(new BotCommand("/restart", "Restart bot"));
         }
 
 
@@ -223,12 +199,11 @@ public class TelegramBot extends TelegramLongPollingBot {
         SendMessage message = new SendMessage();
         message.setChatId(chatID);
 
-        if (systemLanguage.equals("ru")) {
+        if (systemLanguage.equals("ru") || systemLanguage.equals("be")) {
             message.setText("Выберите язык статей:");
         } else {
             message.setText("Select the language of the articles:");
         }
-
 
         // Добавляем клавиатуру с кнопкой "Get a random article"
         InlineKeyboardMarkup keyboardMarkup = new InlineKeyboardMarkup();
@@ -240,6 +215,11 @@ public class TelegramBot extends TelegramLongPollingBot {
         buttonRu.setCallbackData("lang_Русский");
         keyboard.add(List.of(buttonRu));
 
+        InlineKeyboardButton buttonBel = new InlineKeyboardButton();
+        buttonBel.setText("Беларуская");
+        buttonBel.setCallbackData("lang_Беларуская");
+        keyboard.add(List.of(buttonBel));
+
         InlineKeyboardButton buttonEng = new InlineKeyboardButton();
         buttonEng.setText("English");
         buttonEng.setCallbackData("lang_English");
@@ -250,22 +230,29 @@ public class TelegramBot extends TelegramLongPollingBot {
         buttonSimpEng.setCallbackData("lang_Simple English");
         keyboard.add(List.of(buttonSimpEng));
 
-        InlineKeyboardButton buttonBel = new InlineKeyboardButton();
-        buttonBel.setText("Беларуская");
-        buttonBel.setCallbackData("lang_Беларуская");
-        keyboard.add(List.of(buttonBel));
-
         //keyboard.add(row);
         keyboardMarkup.setKeyboard(keyboard);
         message.setReplyMarkup(keyboardMarkup);
 
         // Отправляем сообщение
+        send(message);
+    }
+
+    public void send(SendMessage message) {
         try {
             execute(message);
         } catch (Exception e) {
             e.printStackTrace();
         }
+    }
 
+    private void createUser(long chatID, String username, String systemLanguage) {
+        if (userService.getUserByChatId(chatID).isEmpty()) {
+            userService.saveUser(chatID, username, systemLanguage);
+        } else {
+            userService.setSystemLanguage(chatID, systemLanguage);
+            userService.setLanguage(chatID, systemLanguage);
+        }
     }
 
     /*

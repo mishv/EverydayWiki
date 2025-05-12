@@ -1,17 +1,9 @@
 package com.amazing.EverydayWiki.config;
 
-public enum Language {
-    RUSSIAN("Русский"),
-    ENGLISH("English"),
-    BELORUSSIAN("Белураская"),
-    SIMPLE_ENGLISH("Simple English");
+public class Language {
+    public static final String RUSSIAN = "Русский";
+    public static final String ENGLISH = "English";
+    public static final String BELORUSSIAN = "Беларуская";
+    public static final String SIMPLE_ENGLISH = "Simple English";
 
-    private final String displayName;
-
-    Language(String displayName) {
-        this.displayName = displayName;
-    }
-    public String getDisplayName() {
-        return displayName;
-    }
 }

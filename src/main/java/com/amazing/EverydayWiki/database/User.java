@@ -1,8 +1,5 @@
 package com.amazing.EverydayWiki.database;
-import jakarta.persistence.Entity;
-import jakarta.persistence.GeneratedValue;
-import jakarta.persistence.GenerationType;
-import jakarta.persistence.Id;
+import jakarta.persistence.*;
 import lombok.Getter;
 import lombok.Setter;
 
@@ -11,14 +8,19 @@ public class User {
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
     private Long id;
+
     @Getter
+    @Column(unique = true, nullable = false)
     private Long chatID;
+
     @Getter
     private String username;
     private String timezone;
+
     @Setter
     @Getter
     private String language;
+
     @Setter
     @Getter
     private String systemLanguage;
@@ -30,4 +32,14 @@ public class User {
         this.username = username;
         this.systemLanguage = systemLanguage;
     }
+
+    public User(Long chatID) {
+        this.chatID = chatID;
+    }
+
+    public User(Long chatID, String language) {
+        this.chatID = chatID;
+        this.language = language;
+    }
+
 }
