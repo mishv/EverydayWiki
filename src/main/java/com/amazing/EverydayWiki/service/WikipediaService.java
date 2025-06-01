@@ -1,10 +1,8 @@
 package com.amazing.EverydayWiki.service;
 
 import com.amazing.EverydayWiki.config.Language;
-import com.amazing.EverydayWiki.database.UserService;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
-import lombok.Getter;
 import org.springframework.stereotype.Service;
 
 import org.jsoup.nodes.Document;
@@ -19,7 +17,6 @@ import java.time.format.DateTimeFormatter;
 import java.time.format.TextStyle;
 import java.util.*;
 import java.util.function.BiFunction;
-import java.util.function.Function;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 import java.util.stream.Collectors;
@@ -29,432 +26,246 @@ import org.jsoup.nodes.Element;
 
 @Service
 public class WikipediaService {
+    private static final Map<String, String> RANDOM_URLS = Map.of(
+            Language.ENGLISH, "https://en.wikipedia.org/wiki/Special:Random",
+            Language.RUSSIAN, "https://ru.wikipedia.org/wiki/Служебная:Случайная_страница",
+            Language.SIMPLE_ENGLISH, "https://simple.wikipedia.org/wiki/Special:Random",
+            Language.BELORUSSIAN, "https://be.wikipedia.org/wiki/Адмысловае:Random"
+    );
+
+    public static final Map<String, String> FEATURED_RANDOM_URLS = Map.of(
+            Language.ENGLISH, "https://en.wikipedia.org/wiki/Special:RandomInCategory/Featured_articles",
+            Language.RUSSIAN, "https://ru.wikipedia.org/wiki/Служебная:RandomInCategory/Википедия:Избранные_статьи_по_алфавиту",
+            Language.SIMPLE_ENGLISH, "https://simple.wikipedia.org/wiki/Special:RandomInCategory/Very_good_articles",
+            Language.BELORUSSIAN, "https://be.wikipedia.org/wiki/Адмысловае:RandomInCategory/Вікіпедыя:Выдатныя_артыкулы_паводле_алфавіта"
+    );
+
+    private static final Map<String, String> GOOD_RANDOM_URLS = Map.of(
+            Language.ENGLISH, "https://en.wikipedia.org/wiki/Special:RandomInCategory/Good_articles",
+            Language.RUSSIAN, "https://ru.wikipedia.org/wiki/Служебная:RandomInCategory/Википедия:Хорошие_статьи_по_алфавиту",
+            Language.BELORUSSIAN, "https://be.wikipedia.org/wiki/Адмысловае:RandomInCategory/Вікіпедыя:Добрыя_артыкулы_паводле_алфавіта"
+    );
+
+    private static final Map<String, String> VITAL_RANDOM_URLS = Map.of(
+            Language.ENGLISH, "https://en.wikipedia.org/wiki/Special:RandomInCategory/All_Wikipedia_vital_articles",
+            Language.RUSSIAN, "https://ru.wikipedia.org/wiki/Служебная:RandomInCategory/Википедия:Добротные_статьи_по_алфавиту"
+    );
+
+    private static final String ERROR_MESSAGE = "Please try again later or restart the bot.";
+
+    private record MessageInfo(String message, String formattedDate) {}
 
     public String getAbsolutelyRandomArticle(String language, String systemLanguage) {
-        String URLen = "https://en.wikipedia.org/wiki/Special:Random";
-        String URLru = "https://ru.wikipedia.org/wiki/Служебная:Случайная_страница";
-        String URLsimple = "https://simple.wikipedia.org/wiki/Special:Random";
-        String URLbe = "https://be.wikipedia.org/wiki/Адмысловае:Random";
-        String redirectURL = "";
-        String message;
+        String message = switch (systemLanguage) {
+            case "ru" -> "Случайная статья:\n\n";
+            case "be" -> "Выпадковы артыкул:\n\n";
+            default -> "Random article:\n\n";
+        };
 
-        try {
-            HttpURLConnection connection;
-
-            switch (systemLanguage) {
-                case "be":
-                case "ru": message = "Случайная статья:\n\n";
-                    break;
-                default: message = "Random article:\n\n";
-            }
-
-            switch (language) {
-                case Language.SIMPLE_ENGLISH:
-                    connection = (HttpURLConnection) new URL(URLsimple).openConnection();
-                    message = "";
-                    break;
-                case Language.RUSSIAN:
-                    connection = (HttpURLConnection) new URL(URLru).openConnection();
-                    break;
-                case Language.BELORUSSIAN:
-                    connection = (HttpURLConnection) new URL(URLbe).openConnection();
-                    break;
-                default:
-                    connection = (HttpURLConnection) new URL(URLen).openConnection();
-            }
-
-
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("GET");
-            int responseCode = connection.getResponseCode();
-
-            if (responseCode >= 300 && responseCode < 400) {
-                String redirectedUrl = connection.getHeaderField("Location");
-                if (redirectedUrl != null) {
-                    String decodedUrl = URLDecoder.decode(redirectedUrl, StandardCharsets.UTF_8);
-                    String[] substrings = {"\"", "«", "»", "'"};
-                    boolean contains = Arrays.stream(substrings).anyMatch(decodedUrl::contains);
-                    if (contains) {
-                        decodedUrl = sanitizeUrl(decodedUrl);
-                    }
-                    redirectURL = decodedUrl;
-                } else {
-                    throw new Exception("Please try again later or restart the bot.");
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "Please try again later or restart the bot.";
+        if (language.equals(Language.SIMPLE_ENGLISH)) {
+            message = "";
         }
 
-        return message + redirectURL;
+        return message + fetchRedirectUrl(RANDOM_URLS.getOrDefault(language, RANDOM_URLS.get(Language.ENGLISH)));
     }
 
     public String getTodaysFeaturedArticle(String language, String systemLanguage) {
-        LocalDate today = LocalDate.now();
-        int year = today.getYear();
-        int month = today.getMonthValue();
-        int day = today.getDayOfMonth();
-        String TFA_URLen = String.format("https://en.wikipedia.org/api/rest_v1/feed/featured/%d/%02d/%02d", year, month, day);
-        String URLru = "https://ru.wikipedia.org/wiki/Шаблон:Текущая_избранная_статья";
-        String message;
-        DateTimeFormatter formatter;
-        String formattedDate;
-        String dayOfWeek = "";
-
-        switch (systemLanguage) {
-            case "be":
-            case "ru":
-                formatter = DateTimeFormatter.ofPattern("d MMMM", Locale.forLanguageTag("ru"));
-                dayOfWeek = today.getDayOfWeek().getDisplayName(TextStyle.FULL, new Locale("ru"));
-                formattedDate = today.format(formatter) + ", " + dayOfWeek;
-                message = "<b>" + formattedDate + "</b>" + "\n\n⭐ <b>Статья Дня:</b>\n\n";
-                break;
-            default:
-                formatter = DateTimeFormatter.ofPattern("MMMM d", Locale.ENGLISH);
-                dayOfWeek = today.getDayOfWeek().getDisplayName(TextStyle.FULL, new Locale("en"));
-                formattedDate = today.format(formatter) + ", " + dayOfWeek;
-                message = "<b>" + formattedDate + "</b>" + "\n\n⭐ <b>Article of the Day:</b>\n\n";
-        }
-
-        switch (language) {
-            case Language.RUSSIAN:
-                return message + parseWikiPage(URLru);
-
-            case Language.SIMPLE_ENGLISH:
-                try {
-                    // Загружаем страницу Main_Page с Simple Wikipedia
-                    Document doc = Jsoup.connect("https://simple.wikipedia.org/wiki/Main_Page").get();
-                    String url = "https://simple.wikipedia.org/wiki/";
-                    String html = doc.html();
-
-                    // Ищем элемент, который содержит ссылку на статью дня
-                    String regex = "Selected article(\\n|.)+?<p><b><a href=\"\\/wiki\\/(.+?)\"";
-                    Pattern pattern = Pattern.compile(regex);
-                    Matcher matcher = pattern.matcher(html);
-
-                    if (matcher.find()) {
-                        // Извлекаем ссылку на статью (путь будет начинаться с /wiki/)
-                        String articleLink = matcher.group(2);
-                        url += articleLink;
-                    } else {
-                        System.out.println("Please try again later or restart the bot.");
-                    }
-
-                    // Формируем ссылку на статью
-                    return message + url;
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    return "Please try again later or restart the bot.";
-                }
-
-            case Language.ENGLISH:
-                try {
-                    HttpURLConnection connection;
-                    connection = (HttpURLConnection) new URL(TFA_URLen).openConnection();
-                    connection.setRequestMethod("GET");
-
-                    BufferedReader reader = new BufferedReader(new InputStreamReader(connection.getInputStream()));
-                    String response = reader.lines().collect(Collectors.joining());
-                    reader.close();
-
-                    JsonNode rootNode = new ObjectMapper().readTree(response);
-                    JsonNode featuredArticle = rootNode.at("/tfa");
-
-                    String title = featuredArticle.get("title").asText();
-                    return message + "https://en.wikipedia.org/wiki/" + title.replace(" ", "_");
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    return "Please try again later or restart the bot.";
-                }
-
-            case Language.BELORUSSIAN:
-                try {
-                    // Загружаем страницу Main_Page с Simple Wikipedia
-                    Document doc = Jsoup.connect("https://be.wikipedia.org/wiki/Галоўная_старонка").get();
-                    String url = "https://be.wikipedia.org/wiki/";
-                    String html = doc.html();
-
-                    // Ищем элемент, который содержит ссылку на статью дня
-                    String regex = "Артыкул дня(\\n|.)+?<p><b><a href=\"\\/wiki\\/(.+?)\"";
-                    Pattern pattern = Pattern.compile(regex);
-                    Matcher matcher = pattern.matcher(html);
-
-                    if (matcher.find()) {
-                        // Извлекаем ссылку на статью (путь будет начинаться с /wiki/)
-                        String articleLink = matcher.group(2);
-                        articleLink = URLDecoder.decode(articleLink, StandardCharsets.UTF_8);
-                        url += articleLink;
-                    } else {
-                        System.out.println("Please try again later or restart the bot.");
-                    }
-
-                    // Формируем ссылку на статью
-                    return message + url;
-
-                } catch (Exception e) {
-                    e.printStackTrace();
-                    return "Please try again later or restart the bot.";
-                }
-
-
-            default:
-                return "Please try again later or restart the bot.";
-        }
-
-
+        MessageInfo messageInfo = buildMessageInfo(systemLanguage);
+        return switch (language) {
+            case Language.RUSSIAN -> messageInfo.message() + parseWikiPage("https://ru.wikipedia.org/wiki/Шаблон:Текущая_избранная_статья");
+            case Language.SIMPLE_ENGLISH -> messageInfo.message() + parseSimpleEnglishFeatured();
+            case Language.ENGLISH -> messageInfo.message() + fetchEnglishFeaturedArticle(messageInfo.formattedDate());
+            case Language.BELORUSSIAN -> messageInfo.message() + parseBelorussianFeatured();
+            default -> ERROR_MESSAGE;
+        };
     }
 
     public String getRandomFeaturedArticle(String language, String systemLanguage) {
-        String API_URLru = "https://ru.wikipedia.org/wiki/Служебная:RandomInCategory/Википедия:Избранные_статьи_по_алфавиту";
-        String API_URLen = "https://en.wikipedia.org/wiki/Special:RandomInCategory/Featured_articles";
-        String URLbe = "https://be.wikipedia.org/wiki/Адмысловае:RandomInCategory/Вікіпедыя:Выдатныя_артыкулы_паводле_алфавіта";
-        String URLsimple = "https://simple.wikipedia.org/wiki/Special:RandomInCategory/Very_good_articles";
-        String redirectURL = "";
-        String message;
+        String category = switch (language) {
+            case Language.RUSSIAN -> "Избранные статьи";
+            case Language.BELORUSSIAN -> "Выдатныя артыкулы";
+            default -> "Featured Articles";
+        };
+        String message = switch (systemLanguage) {
+            case "ru" -> "Статья из категории <b>\"" + category + "\"</b>:\n\n";
+            case "be" -> "Артыкул з катэгорыі <b>\""  + category + "\"</b>:\n\n";
+            default -> "This article is from the <b>'" + category + "'</b> category:\n\n";
+        };
 
-        try {
-            HttpURLConnection connection;
-
-            switch (systemLanguage) {
-                case "be":
-                case "ru":
-                    message = "Статья из категории <b>\"Избранные статьи\"</b>:\n\n";
-                    break;
-                default:
-                    message = "This article is from the <b>'Featured Articles'</b> category:\n\n";
-            }
-
-            switch (language) {
-                case Language.RUSSIAN:
-                    connection = (HttpURLConnection) new URL(API_URLru).openConnection();
-                    break;
-                case Language.BELORUSSIAN:
-                    connection = (HttpURLConnection) new URL(URLbe).openConnection();
-                    break;
-                case Language.SIMPLE_ENGLISH:
-                    connection = (HttpURLConnection) new URL(URLsimple).openConnection();
-                    message = "";
-                    break;
-                default:
-                    connection = (HttpURLConnection) new URL(API_URLen).openConnection();
-            }
-
-
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("GET");
-            int responseCode = connection.getResponseCode();
-
-            if (responseCode >= 300 && responseCode < 400) {
-                String redirectedUrl = connection.getHeaderField("Location");
-                if (redirectedUrl != null) {
-                    String decodedUrl = URLDecoder.decode(redirectedUrl, StandardCharsets.UTF_8);
-                    String[] substrings = {"\"", "«", "»", "'"};
-                    boolean contains = Arrays.stream(substrings).anyMatch(decodedUrl::contains);
-                    if (contains) {
-                        decodedUrl = sanitizeUrl(decodedUrl);
-                    }
-                    redirectURL = decodedUrl;
-                } else {
-                    throw new Exception("Please try again later or restart the bot.");
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "Please try again later or restart the bot.";
+        if (language.equals(Language.SIMPLE_ENGLISH)) {
+            message = "";
         }
 
-        return message + redirectURL;
+        return message + fetchRedirectUrl(FEATURED_RANDOM_URLS.getOrDefault(language, FEATURED_RANDOM_URLS.get(Language.ENGLISH)));
     }
 
     public String getRandomGoodArticle(String language, String systemLanguage) {
-        String API_URLru = "https://ru.wikipedia.org/wiki/Служебная:RandomInCategory/Википедия:Хорошие_статьи_по_алфавиту";
-        String API_URLen = "https://en.wikipedia.org/wiki/Special:RandomInCategory/Good_articles";
-        String URLbe = "https://be.wikipedia.org/wiki/Адмысловае:RandomInCategory/Вікіпедыя:Добрыя_артыкулы_паводле_алфавіта";
-        String redirectURL = "";
-        String message;
-
-        try {
-            HttpURLConnection connection;
-
-            switch (systemLanguage) {
-                case "be":
-                case "ru":
-                    message = "Статья из категории <b>\"Хорошие статьи\"</b>:\n\n";
-                    break;
-                default:
-                    message = "This article is from the <b>'Good Articles'</b> category:\n\n";
-
-            }
-
-            switch (language) {
-                case Language.RUSSIAN:
-                    connection = (HttpURLConnection) new URL(API_URLru).openConnection();
-                    break;
-                case Language.BELORUSSIAN:
-                    connection = (HttpURLConnection) new URL(URLbe).openConnection();
-                    break;
-                default:
-                    connection = (HttpURLConnection) new URL(API_URLen).openConnection();
-            }
-
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("GET");
-            int responseCode = connection.getResponseCode();
-
-            if (responseCode >= 300 && responseCode < 400) {
-                String redirectedUrl = connection.getHeaderField("Location");
-                if (redirectedUrl != null) {
-                    String decodedUrl = URLDecoder.decode(redirectedUrl, StandardCharsets.UTF_8);
-                    String[] substrings = {"\"", "«", "»", "'"};
-                    boolean contains = Arrays.stream(substrings).anyMatch(decodedUrl::contains);
-                    if (contains) {
-                        decodedUrl = sanitizeUrl(decodedUrl);
-                    }
-                    redirectURL = decodedUrl;
-                } else {
-                    throw new Exception("Please try again later or restart the bot.");
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "Please try again later or restart the bot.";
-        }
-
-        return message + redirectURL;
+        String category = switch (language) {
+            case Language.RUSSIAN -> "Хорошие статьи";
+            case Language.BELORUSSIAN -> "Добрыя артыкулы";
+            default -> "Good Articles";
+        };
+        String message = switch (systemLanguage) {
+            case "ru" -> "Статья из категории <b>\"" + category + "\"</b>:\n\n";
+            case "be" -> "Артыкул з катэгорыі <b>\"" + category + "\"</b>:\n\n";
+            default -> "This article is from the <b>'" + category + "'</b> category:\n\n";
+        };
+        return message + fetchRedirectUrl(GOOD_RANDOM_URLS.getOrDefault(language, GOOD_RANDOM_URLS.get(Language.ENGLISH)));
     }
 
     public String getRandomVitalArticle(String language, String systemLanguage) {
-        String API_URLru = "https://ru.wikipedia.org/wiki/Служебная:RandomInCategory/Википедия:Добротные_статьи_по_алфавиту";
-        String API_URLen = "https://en.wikipedia.org/wiki/Special:RandomInCategory/All_Wikipedia_vital_articles";
-        String redirectURL = "";
-        String message;
-
-        try {
-            HttpURLConnection connection;
-
-            if (language.equals(Language.RUSSIAN)) {
-                connection = (HttpURLConnection) new URL(API_URLru).openConnection();
-            } else {
-                connection = (HttpURLConnection) new URL(API_URLen).openConnection();
-            }
-
-            switch (systemLanguage) {
-                case "be":
-                case "ru":
-                    message = "Статья из категории <b>\"Добротные статьи\"</b>:\n\n";
-                    break;
-                default:
-                    message = "This article is from the <b>'Vital Articles'</b> category:\n\n";
-            }
-
-            connection.setInstanceFollowRedirects(false);
-            connection.setRequestMethod("GET");
-            int responseCode = connection.getResponseCode();
-
-            if (responseCode >= 300 && responseCode < 400) {
-                String redirectedUrl = connection.getHeaderField("Location");
-                if (redirectedUrl != null && language.equals(Language.RUSSIAN)) {
-                    String decodedUrl = URLDecoder.decode(redirectedUrl, StandardCharsets.UTF_8);
-                    String[] substrings = {"\"", "«", "»", "'"};
-                    boolean contains = Arrays.stream(substrings).anyMatch(decodedUrl::contains);
-                    if (contains) {
-                        decodedUrl = sanitizeUrl(decodedUrl);
-                    }
-                    redirectURL = decodedUrl;
-                } else if (redirectedUrl != null && language.equals(Language.ENGLISH)) {
-                    redirectURL = redirectedUrl.replace("/Talk:", "/");
-                } else {
-                    throw new Exception("Please try again later or restart the bot.");
-                }
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-            return "Please try again later or restart the bot.";
-        }
-
-        return message + redirectURL;
+        String category = switch (language) {
+            case Language.RUSSIAN -> "Добротные статьи";
+            default -> "Vital Articles";
+        };
+        String message = switch (systemLanguage) {
+            case "ru" -> "Статья из категории <b>\"" + category + "\"</b>:\n\n";
+            case "be" -> "Артыкул з катэгорыі <b>\"" + category + "\"</b>:\\n\\n";
+            default -> "This article is from the <b>'" + category + "'</b> category:\n\n";
+        };
+        String url = VITAL_RANDOM_URLS.getOrDefault(language, VITAL_RANDOM_URLS.get(Language.ENGLISH));
+        String redirectUrl = fetchRedirectUrl(url);
+        return message + (language.equals(Language.ENGLISH) ? redirectUrl.replace("/Talk:", "/") : redirectUrl);
     }
 
     public String getRandomArticle(String language, String systemLanguage) {
-        List<BiFunction<String, String, String>> methods;
-
-        switch (language) {
-            case Language.SIMPLE_ENGLISH:
-                methods = List.of(
-                        this::getRandomFeaturedArticle,
-                        this::getAbsolutelyRandomArticle
-                );
-                break;
-
-            case Language.BELORUSSIAN:
-                methods = List.of(
-                        this::getRandomFeaturedArticle,
-                        this::getRandomGoodArticle,
-                        this::getAbsolutelyRandomArticle
-                );
-                break;
-
-            case Language.RUSSIAN:
-            default:
-                methods = List.of(
-                        this::getRandomVitalArticle,
-                        this::getRandomFeaturedArticle,
-                        this::getRandomGoodArticle,
-                        this::getAbsolutelyRandomArticle
-                );
-
-        }
-
-        Random random = new Random();
-        int randomIndex = random.nextInt(methods.size());
-        return methods.get(randomIndex).apply(language, systemLanguage);
+        List<BiFunction<String, String, String>> methods = switch (language) {
+            case Language.SIMPLE_ENGLISH -> List.of(
+                    this::getRandomFeaturedArticle,
+                    this::getAbsolutelyRandomArticle);
+            case Language.BELORUSSIAN -> List.of(
+                    this::getRandomFeaturedArticle,
+                    this::getRandomGoodArticle,
+                    this::getAbsolutelyRandomArticle);
+            default -> List.of(
+                    this::getRandomVitalArticle,
+                    this::getRandomFeaturedArticle,
+                    this::getRandomGoodArticle,
+                    this::getAbsolutelyRandomArticle);
+        };
+        return methods.get(new Random().nextInt(methods.size())).apply(language, systemLanguage);
     }
 
+    public String fetchRedirectUrl(String url) {
+        try {
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setInstanceFollowRedirects(false);
+            conn.setRequestMethod("GET");
 
-    public String sanitizeUrl(String url) {
+            if (conn.getResponseCode() >= 300 && conn.getResponseCode() < 400) {
+                String redirectedUrl = conn.getHeaderField("Location");
+                if (redirectedUrl != null) {
+                    String decodedUrl = URLDecoder.decode(redirectedUrl, StandardCharsets.UTF_8);
+                    return needsSanitization(decodedUrl) ? sanitizeUrl(decodedUrl) : decodedUrl;
+                }
+            }
+        } catch (Exception e) {
+            logError(e);
+        }
+        return ERROR_MESSAGE;
+    }
+
+    private MessageInfo buildMessageInfo(String systemLanguage) {
+        LocalDate today = LocalDate.now();
+        DateTimeFormatter formatter;
+        Locale locale;
+        String articleLabel;
+
+        switch (systemLanguage) {
+            case "ru":
+                formatter = DateTimeFormatter.ofPattern("d MMMM", Locale.forLanguageTag("ru"));
+                locale = new Locale("ru");
+                articleLabel = "Статья Дня";
+                break;
+            case "be":
+                formatter = DateTimeFormatter.ofPattern("d MMMM", Locale.forLanguageTag("be"));
+                locale = new Locale("be");
+                articleLabel = "Артыкул Дня";
+                break;
+            default:
+                formatter = DateTimeFormatter.ofPattern("MMMM d", Locale.ENGLISH);
+                locale = Locale.ENGLISH;
+                articleLabel = "Article of the Day";
+        }
+
+        String dayOfWeek = today.getDayOfWeek().getDisplayName(TextStyle.FULL, locale);
+        String formattedDate = today.format(formatter) + ", " + dayOfWeek;
+        String message = "<b>" + formattedDate + "</b>\n\n⭐ <b>" + articleLabel + ":</b>\n\n";
+        return new MessageInfo(message, formattedDate);
+    }
+
+    private String parseSimpleEnglishFeatured() {
+        try {
+            Document doc = Jsoup.connect("https://simple.wikipedia.org/wiki/Main_Page").get();
+            String regex = "Selected article(\\n|.)+?<p><b><a href=\"\\/wiki\\/(.+?)\"";
+            Matcher matcher = Pattern.compile(regex).matcher(doc.html());
+            return matcher.find() ? "https://simple.wikipedia.org/wiki/" + matcher.group(2) : ERROR_MESSAGE;
+        } catch (Exception e) {
+            logError(e);
+            return ERROR_MESSAGE;
+        }
+    }
+
+    private String fetchEnglishFeaturedArticle(String date) {
+        try {
+            String url = String.format("https://en.wikipedia.org/api/rest_v1/feed/featured/%d/%02d/%02d",
+                    LocalDate.now().getYear(), LocalDate.now().getMonthValue(), LocalDate.now().getDayOfMonth());
+            HttpURLConnection conn = (HttpURLConnection) new URL(url).openConnection();
+            conn.setRequestMethod("GET");
+
+            String response = new BufferedReader(new InputStreamReader(conn.getInputStream()))
+                    .lines().collect(Collectors.joining());
+            JsonNode tfa = new ObjectMapper().readTree(response).at("/tfa");
+            return "https://en.wikipedia.org/wiki/" + tfa.get("title").asText().replace(" ", "_");
+        } catch (Exception e) {
+            logError(e);
+            return ERROR_MESSAGE;
+        }
+    }
+
+    private String parseBelorussianFeatured() {
+        try {
+            Document doc = Jsoup.connect("https://be.wikipedia.org/wiki/Галоўная_старонка").get();
+            String regex = "Артыкул дня(\\n|.)+?<p><b><a href=\"\\/wiki\\/(.+?)\"";
+            Matcher matcher = Pattern.compile(regex).matcher(doc.html());
+            if (matcher.find()) {
+                String path = URLDecoder.decode(matcher.group(2), StandardCharsets.UTF_8);
+                return "https://be.wikipedia.org/wiki/" + (needsSanitization(path) ? sanitizeUrl(path) : path);
+            }
+            return ERROR_MESSAGE;
+        } catch (Exception e) {
+            logError(e);
+            return ERROR_MESSAGE;
+        }
+    }
+
+    private String parseWikiPage(String url) {
+        try {
+            Document doc = Jsoup.connect(url).get();
+            Element link = doc.selectFirst("div.hatnote.navigation-not-searchable a[href^=\"/wiki/\"]");
+            if (link != null) {
+                String path = URLDecoder.decode(link.attr("href"), StandardCharsets.UTF_8);
+                return "https://ru.wikipedia.org" + (needsSanitization(path) ? sanitizeUrl(path) : path);
+            }
+        } catch (Exception e) {
+            logError(e);
+        }
+        return ERROR_MESSAGE;
+    }
+
+    private String sanitizeUrl(String url) {
         return url.replace("\"", "%22")
                 .replace("«", "%C2%AB")
                 .replace("»", "%C2%BB")
                 .replace("'", "%27");
     }
 
-    public String parseWikiPage(String url) {
-        String path = "";
-        try {
-            // Загружаем HTML
-            Document doc = Jsoup.connect(url).get();
-
-            // Ищем div с нужным классом
-            Element hatnoteDiv = doc.selectFirst("div.hatnote.navigation-not-searchable");
-
-            if (hatnoteDiv != null) {
-                // Ищем первую ссылку с нужным href
-                Element articleLink = hatnoteDiv.selectFirst("a[href^=\"/wiki/\"]");
-
-                if (articleLink != null) {
-                    path = articleLink.attr("href"); // /wiki/Красная_планета_(роман)
-                } else {
-                    System.out.println("Please try again later or restart the bot.");
-                }
-            } else {
-                System.out.println("Please try again later or restart the bot.");
-            }
-        } catch (Exception e) {
-            e.printStackTrace();
-        }
-
-        String decodedPath = URLDecoder.decode(path, StandardCharsets.UTF_8);
-
-        String[] substrings = {"\"", "«", "»", "'"};
-        boolean contains = Arrays.stream(substrings).anyMatch(decodedPath::contains);
-        if (contains) {
-            decodedPath = sanitizeUrl(decodedPath);
-        }
-
-        return "https://ru.wikipedia.org" + decodedPath;
+    private boolean needsSanitization(String url) {
+        return url.contains("\"") || url.contains("«") || url.contains("»") || url.contains("'");
     }
 
+    private void logError(Exception e) {
+        // В продакшене заменить на логгер, например, SLF4J
+        e.printStackTrace();
+    }
 }

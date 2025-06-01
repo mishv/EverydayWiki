@@ -71,7 +71,6 @@ public class UserService {
         }
     }
 
-    //переделать
     public void setSystemLanguage(Long chatID, String language) {
         User user = userRepository.findByChatID(chatID);
         if (user != null) {

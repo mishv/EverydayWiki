@@ -23,7 +23,7 @@ import java.util.List;
 @Component
 public class TelegramBot extends TelegramLongPollingBot {
 
-    final BotConfig config;
+    private final BotConfig config;
     @Getter
     private final String botToken;
     @Getter
@@ -35,10 +35,16 @@ public class TelegramBot extends TelegramLongPollingBot {
     private long chatID;
 
     public TelegramBot(BotConfig config, UserService userService, WikipediaService wikipediaService) {
+        super(config.getToken());
         this.config = config;
-        botToken = config.getToken();
+        this.botToken = config.getToken();
         this.userService = userService;
         this.wikipediaService = wikipediaService;
+    }
+
+    @Override
+    public String getBotUsername() {
+        return config.getBotName();
     }
 
     @Override
@@ -51,19 +57,9 @@ public class TelegramBot extends TelegramLongPollingBot {
             systemLanguage = update.getMessage().getFrom().getLanguageCode();
 
             switch (messageText) {
-                case "/start":
-                    startCommandReceived(chatID, username, systemLanguage);
-                    break;
-                case "/language":
-                    updateArticlesLanguage(chatID);
-                    break;
-                case "/restart":
-                    startCommandReceived(chatID, username, systemLanguage);
-                    break;
-                default:
+                case "/start", "/restart" -> startCommandReceived(chatID, username, systemLanguage);
+                case "/language" -> updateArticlesLanguage(chatID);
             }
-
-
         } else if (update.hasCallbackQuery()) {
             String callbackData = update.getCallbackQuery().getData(); // Получаем значение кнопки
             chatID = update.getCallbackQuery().getMessage().getChatId();
@@ -75,24 +71,17 @@ public class TelegramBot extends TelegramLongPollingBot {
             } else if (callbackData.startsWith("lang_")) {
                 articleLanguage = callbackData.split("_")[1];
                 SendMessage message = new SendMessage();
-                String messageText;
-
-                if (userService.getSystemLanguage(chatID).equals("ru") || userService.getSystemLanguage(chatID).equals("be")) {
-                    messageText = "Выбран язык статей: ";
-                } else {
-                    messageText = "Article language: ";
-                }
+                String messageText = switch (userService.getSystemLanguage(chatID)) {
+                    case "ru" -> "Выбран язык статей: ";
+                    case "be" -> "Мова артыкулаў: ";
+                    default -> "Article language: ";
+                };
 
                 message.setText(messageText + articleLanguage + ".");
                 sendMessageWithButton(chatID, message, setRandomArticleButton());
                 userService.setLanguage(chatID, articleLanguage);
             }
         }
-    }
-
-    @Override
-    public String getBotUsername() {
-        return config.getBotName();
     }
 
     private void startCommandReceived(long chatID, String username, String systemLanguage) {
@@ -104,8 +93,8 @@ public class TelegramBot extends TelegramLongPollingBot {
             case "be":
                 articleLanguage = Language.BELORUSSIAN;
                 userService.setLanguage(chatID, articleLanguage);
-                message.setText("Добро пожаловать в \uD83C\uDF3B<b>Everyday Wiki!</b>\n\nКаждый день бот будет отправлять вам одну избранную статью из Википедии." +
-                        "\n\nХотите почитать что-то прямо сейчас?\nНажмите на кнопку ниже.");
+                message.setText("Сардэчна запрашаем у \uD83C\uDF3B<b>Everyday Wiki!</b>\n\nКожны дзень бот будзе дасылаць вам адну абраную артыкул з Вікіпедыі." +
+                        "\n\nХочаце пачытаць нешта прама цяпер?\nНацісніце на кнопку ніжэй.");
                 break;
             case "ru":
                 articleLanguage = Language.RUSSIAN;
@@ -127,23 +116,23 @@ public class TelegramBot extends TelegramLongPollingBot {
         InlineKeyboardButton button = new InlineKeyboardButton();
         button.setCallbackData("get_article");
 
-        if (userService.getSystemLanguage(chatID).equals("ru") || userService.getSystemLanguage(chatID).equals("be")) {
-            button.setText("Случайная статья");
-        } else {
-            button.setText("Get a random article");
+        switch (userService.getSystemLanguage(chatID)) {
+            case "ru" -> button.setText("Случайная статья");
+            case "be" -> button.setText("Выпадковы артыкул");
+            default -> button.setText("Get a random article");
         }
 
         return setInlineKeyboardMarkup(button);
     }
 
-    private InlineKeyboardMarkup setNextArticleButton() {
+    private InlineKeyboardMarkup setNextArticleButton(Long chatID) {
         InlineKeyboardButton button = new InlineKeyboardButton();
         button.setCallbackData("get_article");
 
-        if (userService.getSystemLanguage(chatID).equals("ru") || userService.getSystemLanguage(chatID).equals("be")) {
-            button.setText("Следующая статья");
-        } else {
-            button.setText("Next article");
+        switch (userService.getSystemLanguage(chatID)) {
+            case "ru" -> button.setText("Следующая статья");
+            case "be" -> button.setText("Наступная артыкул");
+            default -> button.setText("Next article");
         }
 
         return setInlineKeyboardMarkup(button);
@@ -170,27 +159,31 @@ public class TelegramBot extends TelegramLongPollingBot {
     public void sendArticleWithButton(long chatID, String text) {
         SendMessage message = new SendMessage();
         message.setText(text);
-        sendMessageWithButton(chatID, message, setNextArticleButton());
+        sendMessageWithButton(chatID, message, setNextArticleButton(chatID));
     }
 
     public void createMenu() {
         //создаем меню
-        List<BotCommand> listofCommands = new ArrayList<>();
-        if (systemLanguage.equals("ru") || systemLanguage.equals("be")) {
-            listofCommands.add(new BotCommand("/language", "Язык статей"));
-            listofCommands.add(new BotCommand("/about", "Информация о боте"));
-            listofCommands.add(new BotCommand("/restart", "Перезапустить бот"));
-        } else {
-            listofCommands.add(new BotCommand("/language", "Set articles language"));
-            listofCommands.add(new BotCommand("/about", "Bot info"));
-            listofCommands.add(new BotCommand("/restart", "Restart bot"));
+        List<BotCommand> listOfCommands = new ArrayList<>();
+
+        switch (systemLanguage) {
+            case "ru":
+                listOfCommands.add(new BotCommand("/language", "Язык статей"));
+                listOfCommands.add(new BotCommand("/restart", "Перезапустить бот"));
+                break;
+            case "be":
+                listOfCommands.add(new BotCommand("/language", "Мова артыкулаў"));
+                listOfCommands.add(new BotCommand("/restart", "Перазапусціць бота"));
+                break;
+            default:
+                listOfCommands.add(new BotCommand("/language", "Set articles language"));
+                listOfCommands.add(new BotCommand("/restart", "Restart bot"));
         }
 
-
         try {
-            this.execute(new SetMyCommands(listofCommands, new BotCommandScopeDefault(), null));
+            this.execute(new SetMyCommands(listOfCommands, new BotCommandScopeDefault(), null));
         } catch (TelegramApiException e) {
-            //log.error("ERROR (setting bot's command list): " + e);
+            //log.error("ERROR (setting bots command list): " + e);
         }
     }
 
@@ -199,10 +192,10 @@ public class TelegramBot extends TelegramLongPollingBot {
         SendMessage message = new SendMessage();
         message.setChatId(chatID);
 
-        if (systemLanguage.equals("ru") || systemLanguage.equals("be")) {
-            message.setText("Выберите язык статей:");
-        } else {
-            message.setText("Select the language of the articles:");
+        switch (userService.getSystemLanguage(chatID)) {
+            case "ru" -> message.setText("Выберите язык статей:");
+            case "be" -> message.setText("Абярыце мову артыкулаў:");
+            default -> message.setText("Choose article language:");
         }
 
         // Добавляем клавиатуру с кнопкой "Get a random article"
@@ -254,24 +247,4 @@ public class TelegramBot extends TelegramLongPollingBot {
             userService.setLanguage(chatID, systemLanguage);
         }
     }
-
-    /*
-    Структура проекта:
-
-    package config:
-    класс BotConfig /
-    класс BotInitializer
-
-    package database:
-    User / класс, описывающий пользователя
-    UserRepository / интерфейс, используется в UserService. Подписан на JpaRepository
-    UserService / класс для взаимодействия с БД
-
-    package service:
-    DailyFeaturedArticleScheduler / класс для отправки статьи дня всем пользователям
-    TelegramBot / основной класс, инициализация бота
-    WikipediaService / методы получения статей с вики
-
-     */
-
 }
