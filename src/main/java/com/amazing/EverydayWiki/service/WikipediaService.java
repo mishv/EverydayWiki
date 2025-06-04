@@ -87,9 +87,9 @@ public class WikipediaService {
             default -> "Featured Articles";
         };
         String message = switch (systemLanguage) {
-            case "ru" -> "Статья из категории <b>\"" + category + "\"</b>:\n\n";
-            case "be" -> "Артыкул з катэгорыі <b>\""  + category + "\"</b>:\n\n";
-            default -> "This article is from the <b>'" + category + "'</b> category:\n\n";
+            case "ru" -> "Из категории <b>\"" + category + "\"</b>:\n\n";
+            case "be" -> "З катэгорыі <b>\""  + category + "\"</b>:\n\n";
+            default -> "From the <b>'" + category + "'</b> category:\n\n";
         };
 
         if (language.equals(Language.SIMPLE_ENGLISH)) {
@@ -106,9 +106,9 @@ public class WikipediaService {
             default -> "Good Articles";
         };
         String message = switch (systemLanguage) {
-            case "ru" -> "Статья из категории <b>\"" + category + "\"</b>:\n\n";
-            case "be" -> "Артыкул з катэгорыі <b>\"" + category + "\"</b>:\n\n";
-            default -> "This article is from the <b>'" + category + "'</b> category:\n\n";
+            case "ru" -> "Из категории <b>\"" + category + "\"</b>:\n\n";
+            case "be" -> "З катэгорыі <b>\"" + category + "\"</b>:\n\n";
+            default -> "From the <b>'" + category + "'</b> category:\n\n";
         };
         return message + fetchRedirectUrl(GOOD_RANDOM_URLS.getOrDefault(language, GOOD_RANDOM_URLS.get(Language.ENGLISH)));
     }
@@ -119,9 +119,9 @@ public class WikipediaService {
             default -> "Vital Articles";
         };
         String message = switch (systemLanguage) {
-            case "ru" -> "Статья из категории <b>\"" + category + "\"</b>:\n\n";
-            case "be" -> "Артыкул з катэгорыі <b>\"" + category + "\"</b>:\\n\\n";
-            default -> "This article is from the <b>'" + category + "'</b> category:\n\n";
+            case "ru" -> "Из категории <b>\"" + category + "\"</b>:\n\n";
+            case "be" -> "З катэгорыі <b>\"" + category + "\"</b>:\\n\\n";
+            default -> "From the <b>'" + category + "'</b> category:\n\n";
         };
         String url = VITAL_RANDOM_URLS.getOrDefault(language, VITAL_RANDOM_URLS.get(Language.ENGLISH));
         String redirectUrl = fetchRedirectUrl(url);
